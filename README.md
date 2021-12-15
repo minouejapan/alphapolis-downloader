@@ -6,6 +6,8 @@ Windows10上のコマンドプロンプト上で動作します。
 
 ### 実行ファイルの作り方
 Delphi (XE2以降)でalphadl.dprを開いてビルドしてください。
+または以下にて実行ファイルを入手してください。
+http://m-and-i.cocolog-nifty.com/freetalk/cat24323473/index.html
 
 ### 使い方
 コマンドプロンプト上で、
