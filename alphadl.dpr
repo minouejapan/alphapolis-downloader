@@ -141,7 +141,7 @@ begin
   IdHTTP.HandleRedirects := True;
   IdHTTP.IOHandler := IdSSL;
   //ファイルまたはページが見つかったら保存先を選択してダウンロード
-	try
+  try
     IdHTTP.Head(URLadr);
   except
     //取得に失敗した場合、再度取得を試みる
@@ -210,7 +210,7 @@ begin
   Result := Base;
 end;
 
-// 本文の改行タグを改行コードに変換する
+// 本文の改行タグを削除する
 function ChangeBRK(Base: string): string;
 begin
   Result := StringReplace(Base, '<br />', '', [rfReplaceAll]);
@@ -250,7 +250,7 @@ begin
   Result := tmp;
 end;
 
-// HTML特殊文字の処理（実際の文字→エスケープ）
+// HTML特殊文字の処理（エスケープ文字列→実際の文字）
 function Restore2RealChar(Base: string): string;
 var
   tmp: string;
