@@ -4,6 +4,10 @@
 ### 動作環境
 Windows10上のコマンドプロンプト上で動作します。
 
+### 実行に必要なライブラリ
+OpenSSL ver1.0.2が必要です。
+https://github.com/IndySockets/OpenSSL-Binaries からopenssl-1.0.2q-i386-win32.zipをダウンロードして、zip書庫内の「libeay32.dll」と「ssleay32.dll」をalphadl.exeがあるフォルダにコピーして下さい。
+
 ### 実行ファイルの作り方
 Delphi (XE2以降)でalphadl.dprを開いてビルドしてください。
 または以下にて実行ファイルを入手してください。
