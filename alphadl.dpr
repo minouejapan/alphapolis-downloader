@@ -4,6 +4,7 @@
   アルファポリスはWinINetではページを全てダウンロードすることが出来ないため、IndyHTTP(TIdHTTP)を
   使用してダウンロードする
 
+  1.9 2022/02/02  各話の先頭に挿絵があるとその後の本文の取得をスキップしてしまう不具合を修正
       2021/12/15  GitHubに上げるためソースコードを整理した
   1.8 2021/10/07  エピソードが1話の場合にダウンロード出来なかった不具合を修正した
                   前書きがない場合ダウンロードに失敗する不具合を修正した
@@ -53,7 +54,7 @@ const
   SERRSTR  = '<div class="dots-indicator" id="LoadingEpisode">';
   SPICTB   = '<div class="story-image"><a href="';
   SPICTM   = '" target="_blank"><img src="';
-  SPICTE   = '" alt=""/></a>';
+  SPICTE   = '" alt=""/></a></div>';
   SCOVERB  = '<div class="cover">';
   SCOVERE  = '" alt=""/>';
 
@@ -75,7 +76,7 @@ const
   IBODYE   = 6;
   IPICTB   = 34;
   IPICTM   = 28;
-  IPICTE   = 14;
+  IPICTE   = 20;
 
   // 青空文庫形式
   AO_RBI = '｜';							// ルビのかかり始め(必ずある訳ではない)
@@ -351,6 +352,11 @@ begin
       else
         Capter := capt;
       Delete(Page, 1, ICAPTE + ep - 1);
+
+      // 本文の終わりを</div>で検出するため、同様に</div>で終了する埋め込み画像を
+      // 最初に処理しておく(2022/2/2)
+      Page := ChangeImage(Page);
+
       sp := Pos(SEPISB, Page);
       if sp > 1 then
       begin
@@ -374,7 +380,7 @@ begin
               //body := ChangeAozoraTag(body);  // 青空文庫のルビタグ文字｜《》を変換する
               body := ChangeRuby(body);       // ルビのタグを変換する
               body := ChangeEm(body);         // 強調（傍点）タグを変換する
-              body := ChangeImage(body);      // 埋め込み画像リンクを変換する
+              //body := ChangeImage(body);      // 埋め込み画像リンクを変換する (2022/2/2 コメントアウト)
               body := Restore2RealChar(body); // エスケースされた特殊文字を本来の文字に変換する
 
               if Length(capt) > 0 then
@@ -433,6 +439,7 @@ begin
           TBuff.Clear;
           TBuff.WriteBOM := False;
           TBuff.LoadFromStream(RBuff, TEncoding.UTF8);
+          //Debug用（有効にすると各話HTMLをそのまま保存する）
           //TBuff.SaveToFile(ExtractFilePath(ParamStr(0)) + IntToStr(i) + '.htm', TEncoding.UTF8);
           PersPage(TBuff.Text);
           SetConsoleCursorPosition(hCOutput, CSBI.dwCursorPosition);
@@ -585,7 +592,7 @@ begin
   if ParamCount = 0 then
   begin
     Writeln('');
-    Writeln('alphadl ver1.7 2021/9/29 (c) INOUE, masahiro.');
+    Writeln('alphadl ver1.9 2022/2/2 (c) INOUE, masahiro.');
     Writeln('  使用方法');
     Writeln('  alphadl 小説トップページのURL [保存するファイル名(省略するとタイトル名で保存します)]');
     Exit;
@@ -619,7 +626,6 @@ begin
   IdHTTP := TIdHTTP.Create(nil);
   IdSSL := TIdSSLIOHandlerSocketOpenSSL.Create;
   try
-    //if LoadFromHTML(Edit1.Text, RBuff) then
     if not LoadHTMLbyIndy(URL, RBuff) then
     begin
       TBuff := TStringList.Create;
