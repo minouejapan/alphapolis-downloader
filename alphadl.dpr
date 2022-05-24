@@ -589,6 +589,37 @@ begin
   end;
 end;
 
+// exeやdllのファイルバージョンを取得する
+function GetVersionInfo(const AFileName:string): string;
+var
+  InfoSize:DWORD;
+  SFI:string;
+  Buf,Trans,Value:Pointer;
+begin
+  Result := '';
+  if AFileName = '' then Exit;
+  InfoSize := GetFileVersionInfoSize(PChar(AFileName),InfoSize);
+  if InfoSize <> 0 then
+  begin
+    GetMem(Buf,InfoSize);
+    try
+      if GetFileVersionInfo(PChar(AFileName),0,InfoSize,Buf) then
+      begin
+        if VerQueryValue(Buf,'\VarFileInfo\Translation',Trans,InfoSize) then
+        begin
+          SFI := Format('\StringFileInfo\%4.4x%4.4x\FileVersion',
+                 [LOWORD(DWORD(Trans^)),HIWORD(DWORD(Trans^))]);
+          if VerQueryValue(Buf,PChar(SFI),Value,InfoSize) then
+            Result := PChar(Value)
+          else Result := 'UnKnown';
+        end;
+      end;
+    finally
+      FreeMem(Buf);
+    end;
+  end;
+end;
+
 // OpenSSLが使用出来るかどうかチェックする
 function CheckOpenSSL: Boolean;
 var
@@ -608,12 +639,24 @@ begin
 end;
 
 begin
-  if not CheckOpenSSL then  // OpenSSLライブラリをチェック
+  // OpenSSLライブラリをチェック
+  if not CheckOpenSSL then
   begin
     Writeln('');
     Writeln('alphadlを使用するためのOpenSSLライブラリが見つかりません.');
     Writeln('以下のサイトからopenssl-1.0.2q-i386-win32.zipをダウンロードしてlibeay32.dllとssleay32.dllをalphadl.exeがあるフォルダにコピーして下さい.');
     Writeln('https://github.com/IndySockets/OpenSSL-Binaries');
+    Exit;
+  end;
+  // OpenSSLのバージョンをチェック
+  if (Pos('1.0.2', GetVersionInfo('libeay32.dll')) = 0)
+    or (Pos('1.0.2', GetVersionInfo('ssleay32.dll')) = 0) then
+  begin
+    Writeln('');
+    Writeln('OpenSSLライブラリのバージョンが違います.');
+    Writeln('以下のサイトからopenssl-1.0.2q-i386-win32.zipをダウンロードしてlibeay32.dllとssleay32.dllをalphadl.exeがあるフォルダにコピーして下さい.');
+    Writeln('https://github.com/IndySockets/OpenSSL-Binaries');
+    Exit;
   end;
 
   if ParamCount = 0 then
