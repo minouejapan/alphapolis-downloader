@@ -4,6 +4,7 @@
   アルファポリスはWinINetではページを全てダウンロードすることが出来ないため、IndyHTTP(TIdHTTP)を
   使用してダウンロードする
 
+  2.0 2022/05/25  起動時にOpenSSLライブラリがあるかどうかチェックするようにした
   1.9 2022/02/02  本文中に挿絵がある場合、挿絵以降の本文を取得出来なかった不具合を修正
       2021/12/15  GitHubに上げるためソースコードを整理した
   1.8 2021/10/07  エピソードが1話の場合にダウンロード出来なかった不具合を修正した
@@ -588,11 +589,37 @@ begin
   end;
 end;
 
+// OpenSSLが使用出来るかどうかチェックする
+function CheckOpenSSL: Boolean;
+var
+  hnd: THandle;
 begin
+  Result := True;
+  hnd := LoadLibrary('libeay32.dll');
+  if hnd = 0 then
+    Result := False
+  else
+    FreeLibrary(hnd);
+  hnd := LoadLibrary('ssleay32.dll');
+  if hnd = 0 then
+    Result := False
+  else
+    FreeLibrary(hnd);
+end;
+
+begin
+  if not CheckOpenSSL then  // OpenSSLライブラリをチェック
+  begin
+    Writeln('');
+    Writeln('alphadlを使用するためのOpenSSLライブラリが見つかりません.');
+    Writeln('以下のサイトからopenssl-1.0.2q-i386-win32.zipをダウンロードしてlibeay32.dllとssleay32.dllをalphadl.exeがあるフォルダにコピーして下さい.');
+    Writeln('https://github.com/IndySockets/OpenSSL-Binaries');
+  end;
+
   if ParamCount = 0 then
   begin
     Writeln('');
-    Writeln('alphadl ver1.9 2022/2/2 (c) INOUE, masahiro.');
+    Writeln('alphadl ver2.0 2022/5/25 (c) INOUE, masahiro.');
     Writeln('  使用方法');
     Writeln('  alphadl 小説トップページのURL [保存するファイル名(省略するとタイトル名で保存します)]');
     Exit;
