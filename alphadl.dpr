@@ -4,6 +4,7 @@
   アルファポリスはWinINetではページを全てダウンロードすることが出来ないため、IndyHTTP(TIdHTTP)を
   使用してダウンロードする
 
+  2.1 2022/08/07  タイトル名の先頭に連載状況（連載中・完結）を追加するようにした
   2.0 2022/05/25  起動時にOpenSSLライブラリがあるかどうかチェックするようにした
   1.9 2022/02/02  本文中に挿絵がある場合、挿絵以降の本文を取得出来なかった不具合を修正
       2021/12/15  GitHubに上げるためソースコードを整理した
@@ -58,6 +59,7 @@ const
   SPICTE   = '" alt=""/></a></div>';
   SCOVERB  = '<div class="cover">';
   SCOVERE  = '" alt=""/>';
+  SHEAD    = '<span class="content-status complete">';
 
   ITITLEB  = 18;    // 小説表題
   ITITLEE  = 5;
@@ -78,6 +80,7 @@ const
   IPICTB   = 34;
   IPICTM   = 28;
   IPICTE   = 20;
+  IHEAD    = 38;
 
   // 青空文庫形式
   AO_RBI = '｜';							// ルビのかかり始め(必ずある訳ではない)
@@ -118,7 +121,7 @@ var
   PageList,
   TextPage,
   LogFile: TStringList;
-  Capter, URL, Path, FileName, strhdl: string;
+  Capter, URL, Path, FileName, NvStat, strhdl: string;
   RBuff: TMemoryStream;
   TBuff: TStringList;
   hWnd: THandle;
@@ -638,6 +641,24 @@ begin
     FreeLibrary(hnd);
 end;
 
+// 小説の連載状況をチェックする
+function GetNovelStatus(MainPage: string): string;
+var
+  str: string;
+  p: integer;
+begin
+  Result := '';
+  p := Pos(SHEAD, MainPage);
+  if p > 0 then
+  begin
+    str := Copy(MainPage, p + IHEAD, 6);
+    if Pos('連載中', str) > 0 then
+      Result := '【連載中】'
+    else if Pos('完結', str) > 0 then
+      Result := '【完結】';
+  end;
+end;
+
 begin
   // OpenSSLライブラリをチェック
   if not CheckOpenSSL then
@@ -662,7 +683,7 @@ begin
   if ParamCount = 0 then
   begin
     Writeln('');
-    Writeln('alphadl ver2.0 2022/5/25 (c) INOUE, masahiro.');
+    Writeln('alphadl ver2.1 2022/8/7 (c) INOUE, masahiro.');
     Writeln('  使用方法');
     Writeln('  alphadl 小説トップページのURL [保存するファイル名(省略するとタイトル名で保存します)]');
     Exit;
@@ -708,7 +729,8 @@ begin
         LogFile  := TStringList.Create;
         LogFile.Add(URL);
         try
-          PersCapter(TBuff.Text);
+         NvStat := GetNovelStatus(TBuff.Text); // 小説の連載状況を取得
+         PersCapter(TBuff.Text);
           if PageList.Count > 0 then
           begin
             LoadEachPage;
