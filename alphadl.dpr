@@ -4,6 +4,7 @@
   アルファポリスはWinINetではページを全てダウンロードすることが出来ないため、IndyHTTP(TIdHTTP)を
   使用してダウンロードする
 
+  2.2 2022/10/29  トップページの作品タイトル装飾タグがh2からh1に変わったため検出文字列を修正した
   2.1 2022/08/07  タイトル名の先頭に連載状況（連載中・完結）を追加するようにした
   2.0 2022/05/25  起動時にOpenSSLライブラリがあるかどうかチェックするようにした
   1.9 2022/02/02  本文中に挿絵がある場合、挿絵以降の本文を取得出来なかった不具合を修正
@@ -32,21 +33,32 @@ program alphadl;
 
 {$R *.res}
 
+{$R *.dres}
+
 uses
-  System.SysUtils, System.Classes, IdHTTP, IdSSLOpenSSL, IdGlobal, Windows, WinAPI.Messages;
+  System.SysUtils,
+  System.Classes,
+  IdHTTP,
+  IdSSLOpenSSL,
+  IdGlobal,
+  Windows,
+  WinAPI.Messages;
 
 const
   // データ抽出用の識別タグ
-  STITLEB  = '<h2 class="title">';     // 小説表題
-  STITLEE  = '</h2>';
+  //STITLEB  = '<h2 class="title">';     // 小説表題 2022/10/28 表題タグがh2からh1に変わった？
+  //STITLEE  = '</h2>';
+  STITLEB  = '<h1 class="title">';     // 小説表題
+  STITLEE  = '</h1>';
   SAUTHERB = '<div class="author">';   // 作者
   SAUTHERE = '</a>';
   SHEADERB = '<div class="abstract">'; // 前書き
   SHEADERE = '</div>';
-  SSTRURLB = '<div class="episode ">							<a href="';
+  SSTRURLB = '<div class="episode ">       <a href="';
   SSTRURLE = '" >';
   SSTTLB   = '<span class="title"><span class="bookmark-dummy"></span>';
   SSTTLE   = '</span>';
+
   SCAPTB   = '<div class="chapter-title">';
   SCAPTE   = '</div>';
   SEPISB   = '<h2 class="episode-title">';
@@ -178,10 +190,15 @@ begin
   IdHTTP.Disconnect;
 end;
 
-// HTMLテキスト内のCR/LF(#$0D#$0A)を除去する
+// HTMLテキスト内のCR/LF(#$0D#$0A)を除去しTAB文字を半角スペースに変換する
 function ElimCRLF(Base: string): string;
+var
+  tmp: string;
 begin
-  Result := StringReplace(Base, #$0D#$0A, '', [rfReplaceAll]);
+  tmp := StringReplace(Base, #$0D, '', [rfReplaceAll]);
+  tmp := StringReplace(tmp,  #$0A, '', [rfReplaceAll]);
+  tmp := StringReplace(tmp,  #$09, ' ', [rfReplaceAll]);
+  Result := tmp;
 end;
 
 // 指定された文字列の前と後のスペース(' '/'　'/#$20/#$09/#$0D/#$0A)を除去する
@@ -473,6 +490,10 @@ var
   conhdl: THandle;
 begin
   Write('小説情報を取得中 ' + URL + ' ... ');
+
+  // Debug
+  // Writeln(ElimCRLF(MainPage));
+
   // タイトル名
   sp := Pos(STITLEB, MainPage);
   if sp > 0 then
@@ -494,6 +515,9 @@ begin
           Delete(fn, 27, Length(fn) - 26);
         Filename := Path + fn + '.txt';
       end;
+      // タイトル名に"完結"が含まれていなければ先頭に小説の連載状況を追加する
+      if Pos('完結', title) = 0 then
+        title := NvStat + title;
       // タイトル名を保存
       TextPage.Add(title);
       LogFile.Add('タイトル：' + title);
@@ -667,6 +691,7 @@ begin
     Writeln('alphadlを使用するためのOpenSSLライブラリが見つかりません.');
     Writeln('以下のサイトからopenssl-1.0.2q-i386-win32.zipをダウンロードしてlibeay32.dllとssleay32.dllをalphadl.exeがあるフォルダにコピーして下さい.');
     Writeln('https://github.com/IndySockets/OpenSSL-Binaries');
+    ExitCode := 2;
     Exit;
   end;
   // OpenSSLのバージョンをチェック
@@ -677,13 +702,14 @@ begin
     Writeln('OpenSSLライブラリのバージョンが違います.');
     Writeln('以下のサイトからopenssl-1.0.2q-i386-win32.zipをダウンロードしてlibeay32.dllとssleay32.dllをalphadl.exeがあるフォルダにコピーして下さい.');
     Writeln('https://github.com/IndySockets/OpenSSL-Binaries');
+    ExitCode := 2;
     Exit;
   end;
 
   if ParamCount = 0 then
   begin
     Writeln('');
-    Writeln('alphadl ver2.1 2022/8/7 (c) INOUE, masahiro.');
+    Writeln('alphadl ver2.2 2022/10/29 (c) INOUE, masahiro.');
     Writeln('  使用方法');
     Writeln('  alphadl 小説トップページのURL [保存するファイル名(省略するとタイトル名で保存します)]');
     Exit;
@@ -729,8 +755,8 @@ begin
         LogFile  := TStringList.Create;
         LogFile.Add(URL);
         try
-         NvStat := GetNovelStatus(TBuff.Text); // 小説の連載状況を取得
-         PersCapter(TBuff.Text);
+          NvStat := GetNovelStatus(TBuff.Text); // 小説の連載状況を取得
+          PersCapter(TBuff.Text);
           if PageList.Count > 0 then
           begin
             LoadEachPage;
@@ -740,9 +766,12 @@ begin
               Writeln(Filename + ' に保存しました.');
             except
               Writeln('ファイルの保存に失敗しました.');
+              ExitCode := 1;
             end;
-          end else
-            Writeln(URL + 'から情報を取得できませんでした.');
+          end else begin
+            Writeln(URL + '：トップページの目次情報を取得出来ませんでした.');
+            ExitCode := 1;
+          end;
         finally
           PageList.Free;
           TextPage.Free;
@@ -750,8 +779,10 @@ begin
       finally
         TBuff.Free;
       end;
-    end else
-      Writeln(URL + 'から情報を取得できませんでした.');
+    end else begin
+      Writeln(URL + '：トップページをダウンロード出来ませんでした.');
+      ExitCode := 1;
+    end;
   finally
     IdSSL.Free;
     IdHTTP.Free;
