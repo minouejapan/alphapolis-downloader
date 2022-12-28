@@ -728,7 +728,7 @@ begin
   if ParamCount = 0 then
   begin
     Writeln('');
-    Writeln('alphadl ver2.2 2022/10/29 (c) INOUE, masahiro.');
+    Writeln('alphadl ver2.4 2022/12/28 (c) INOUE, masahiro.');
     Writeln('  使用方法');
     Writeln('  alphadl 小説トップページのURL [保存するファイル名(省略するとタイトル名で保存します)]');
     Exit;
