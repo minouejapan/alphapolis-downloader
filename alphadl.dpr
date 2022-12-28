@@ -4,6 +4,9 @@
   アルファポリスはWinINetではページを全てダウンロードすることが出来ないため、IndyHTTP(TIdHTTP)を
   使用してダウンロードする
 
+  2.4 2022/12/28  見出しの青空文庫タグを変更した
+  2.3 2022/12/09  有料コンテンツ等本文が取得できなかった場合は代わりに本文に取得出来ませんでした
+                  メッセージを挿入するようにした
   2.2 2022/10/29  トップページの作品タイトル装飾タグがh2からh1に変わったため検出文字列を修正した
   2.1 2022/08/07  タイトル名の先頭に連載状況（連載中・完結）を追加するようにした
   2.0 2022/05/25  起動時にOpenSSLライブラリがあるかどうかチェックするようにした
@@ -104,6 +107,14 @@ const
   AO_CPT = '」は大見出し］';	// 章
   AO_SEC = '」は中見出し］';  // 話
   AO_PRT = '」は小見出し］';
+
+  AO_CPB = '［＃大見出し］';        // 2022/12/28 こちらのタグに変更
+  AO_CPE = '［＃大見出し終わり］';
+  AO_SEB = '［＃中見出し］';
+  AO_SEE = '［＃中見出し終わり］';
+  AO_PRB = '［＃小見出し］';
+  AO_PRE = '［＃小見出し終わり］';
+
   AO_DAI = '［＃ここから';		// ブロックの字下げ開始
   AO_DAO = '［＃ここで字下げ終わり］';
   AO_DAN = '字下げ］';
@@ -405,7 +416,8 @@ begin
               body := Restore2RealChar(body); // エスケースされた特殊文字を本来の文字に変換する
 
               if Length(capt) > 0 then
-                TextPage.Add(AO_CPI + capt + AO_CPT);
+                //TextPage.Add(AO_CPI + capt + AO_CPT);
+                TextPage.Add(AO_CPB + capt + AO_CPE);
 
               sp := Pos(SERRSTR, body);
               if (sp > 0) and (sp < 10) then
@@ -414,7 +426,8 @@ begin
                 TextPage.Add('★HTMLページ読み込みエラー');
                 Result := True;
               end else begin
-                TextPage.Add(AO_CPI + subt + AO_SEC);
+                //TextPage.Add(AO_CPI + subt + AO_SEC);
+                TextPage.Add(AO_SEB + subt + AO_SEE);
                 TextPage.Add(body);
                 TextPage.Add('');
                 TextPage.Add(AO_PB2);
@@ -425,6 +438,9 @@ begin
         end;
       end;
     end;
+  end else begin
+    TextPage.Add('本文を取得出来ませんでした.');
+    TextPage.Add(AO_PB2);
   end;
 end;
 
@@ -467,6 +483,9 @@ begin
           Write('各話を取得中 [' + Format('%3d', [n]) + '/' + Format('%3d', [cnt]) + '(' + Format('%d', [(n * 100) div cnt]) + '%)]');
           if hWnd <> 0 then
             SendMessage(hWnd, WM_DLINFO, i, 1);
+        end else begin
+          TextPage.Add('本文を取得出来ませんでした.');
+          TextPage.Add(AO_PB2);
         end;
         Inc(i);
         Inc(n);
@@ -593,7 +612,7 @@ begin
           sp := Pos(SCOVERB, MainPage);
           if sp > 1 then
           begin
-            Delete(MainPage, 1, sp + 70);
+            Delete(MainPage, 1, sp + 79{70});
             ep := Pos(SCOVERE, MainPage);
             cv := Copy(MainPage, 1, ep - 1);
             if Pos('alphapolis.co.jp/img/books/no_image/', cv) = 0 then
