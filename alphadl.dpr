@@ -4,6 +4,8 @@
   アルファポリスはWinINetではページを全てダウンロードすることが出来ないため、IndyHTTP(TIdHTTP)を
   使用してダウンロードする
 
+  2.5 2023/02/27  &#x????;にエンコードされている‼等のUnicode文字をデコードする処理を追加した
+                  識別タグの文字列長さを定数からLength(識別文字定数)に変更した
   2.4 2022/12/28  見出しの青空文庫タグを変更した
   2.3 2022/12/09  有料コンテンツ等本文が取得できなかった場合は代わりに本文に取得出来ませんでした
                   メッセージを挿入するようにした
@@ -75,27 +77,6 @@ const
   SCOVERB  = '<div class="cover">';
   SCOVERE  = '" alt=""/>';
   SHEAD    = '<span class="content-status complete">';
-
-  ITITLEB  = 18;    // 小説表題
-  ITITLEE  = 5;
-  IAUTHERB = 20;    // 作者
-  IAUTHERE = 4;
-  IHEADERB = 22;    // 前書き
-  IHEADERE = 6;
-  ISTRURLB = 38;
-  ISTRURLE = 3;
-  ISTTLB   = 56;
-  ISTTLE   = 7;
-  ICAPTB   = 27;
-  ICAPTE   = 6;
-  IEPISB   = 26;
-  IEPISE   = 5;
-  IBODYB   = 34;
-  IBODYE   = 6;
-  IPICTB   = 34;
-  IPICTM   = 28;
-  IPICTE   = 20;
-  IHEAD    = 38;
 
   // 青空文庫形式
   AO_RBI = '｜';							// ルビのかかり始め(必ずある訳ではない)
@@ -283,23 +264,36 @@ begin
   Result := tmp;
 end;
 
-// HTML特殊文字の処理（エスケープ文字列→実際の文字）
+// HTML特殊文字の処理
+// 1)エスケープ文字列 → 実際の文字
+// 2)&#x????; → 通常の文字
 function Restore2RealChar(Base: string): string;
 var
-  tmp: string;
+  tmp, cd: string;
+  p, w: integer;
+  ch: Char;
 begin
+  // エスケープされた文字
   tmp := StringReplace(Base, '&lt;',      '<',  [rfReplaceAll]);
   tmp := StringReplace(tmp,  '&gt;',      '>',  [rfReplaceAll]);
-  tmp := StringReplace(tmp,  '&amp;',     '&',  [rfReplaceAll]);
+  tmp := StringReplace(tmp,  '&quot;',    '"',  [rfReplaceAll]);
   tmp := StringReplace(tmp,  '&nbsp;',    ' ',  [rfReplaceAll]);
   tmp := StringReplace(tmp,  '&yen;',     '\',  [rfReplaceAll]);
   tmp := StringReplace(tmp,  '&brvbar;',  '|',  [rfReplaceAll]);
   tmp := StringReplace(tmp,  '&copy;',    '©',  [rfReplaceAll]);
-  tmp := StringReplace(tmp,  '&quot;',    '"',  [rfReplaceAll]);
-
-  tmp := StringReplace(tmp,  '&#x202A;',  '',   [rfReplaceAll]);
-  tmp := StringReplace(tmp,  '&#x202C;',  '',   [rfReplaceAll]);
-
+  tmp := StringReplace(tmp,  '&amp;',     '&',  [rfReplaceAll]);
+  // &#x????;にエンコードされた文字をデコードする (2023/2/27)
+  p := Pos('&#x', tmp);
+  while p > 0 do
+  begin
+    Delete(tmp, p, 3);
+    cd := Copy(tmp, p, 4);
+    w := StrToInt('$' + cd);
+    ch := Char(w);
+    Delete(tmp, p, 5);
+    Insert(ch, tmp, p);
+    P := Pos('&#x', tmp);
+  end;
   Result := tmp;
 end;
 
@@ -313,16 +307,16 @@ begin
   p := Pos(SPICTB, Base);
   while p > 0 do
   begin
-    Delete(Base, p, IPICTB);
+    Delete(Base, p, Length(SPICTB));
     p2 := Pos(SPICTM, Base);
     if p2 > 1 then
     begin
-      Delete(Base, p, p2 - p + IPICTM);
+      Delete(Base, p, p2 - p + Length(SPICTM));
       p2 := Pos(SPICTE, Base);
       if p2 > 1 then
       begin
         lnk := Copy(Base, p, p2 - p);
-        Delete(Base, p, p2 - p + IPICTE);
+        Delete(Base, p, p2 - p + Length(SPICTE));
       end;
       Insert(AO_PIE, Base, p);
       Insert(lnk, Base, p);
@@ -372,7 +366,7 @@ begin
   sp := Pos(SCAPTB, Page);
   if sp > 1 then
   begin
-    Delete(Page, 1, ICAPTB + sp - 1);
+    Delete(Page, 1, Length(SCAPTB) + sp - 1);
     ep := Pos(SCAPTE, Page);
     if ep > 1 then
     begin
@@ -383,7 +377,7 @@ begin
         capt := ''
       else
         Capter := capt;
-      Delete(Page, 1, ICAPTE + ep - 1);
+      Delete(Page, 1, Length(SCAPTE) + ep - 1);
 
       // 本文の終わりを</div>で検出するため、同様に</div>で終了する埋め込み画像を
       // 最初に処理しておく(2022/2/2)
@@ -392,18 +386,18 @@ begin
       sp := Pos(SEPISB, Page);
       if sp > 1 then
       begin
-        Delete(Page, 1, IEPISB + sp - 1);
+        Delete(Page, 1, Length(SEPISB) + sp - 1);
         ep := Pos(SEPISE, Page);
         if ep > 1 then
         begin
           subt := Copy(Page, 1, ep - 1);
           subt := TrimSpace(subt);
           subt := Restore2RealChar(subt);
-          Delete(Page, 1, IEPISB + ep - 1);
+          Delete(Page, 1, Length(SEPISB) + ep - 1);
           sp := Pos(SBODYB, Page);
           if sp > 1 then
           begin
-            Delete(Page, 1, IBODYB + sp - 1);
+            Delete(Page, 1, Length(SBODYB) + sp - 1);
             ep := Pos(SBODYE, Page);
             if ep > 1 then
             begin
@@ -422,7 +416,7 @@ begin
               sp := Pos(SERRSTR, body);
               if (sp > 0) and (sp < 10) then
               begin
-                TextPage.Add(AO_CPI + subt + AO_SEC);
+                TextPage.Add(AO_SEB + subt + AO_SEE);
                 TextPage.Add('★HTMLページ読み込みエラー');
                 Result := True;
               end else begin
@@ -517,7 +511,7 @@ begin
   sp := Pos(STITLEB, MainPage);
   if sp > 0 then
   begin
-    Delete(MainPage, 1, sp + ITITLEB  - 1);
+    Delete(MainPage, 1, sp + Length(STITLEB) - 1);
     sp := Pos(STITLEE, MainPage);
     if sp > 1 then
     begin
@@ -540,12 +534,12 @@ begin
       // タイトル名を保存
       TextPage.Add(title);
       LogFile.Add('タイトル：' + title);
-      Delete(MainPage, 1, sp + ITITLEE);
+      Delete(MainPage, 1, sp + Length(STITLEE));
       // 作者名
       sp := Pos(SAUTHERB, MainPage);
       if sp > 1  then
       begin
-        Delete(MainPage, 1, sp + IAUTHERB - 1);
+        Delete(MainPage, 1, sp + Length(SAUTHERB) - 1);
         ep := Pos(SAUTHERE, MainPage);
         if ep > 1 then
         begin
@@ -559,12 +553,12 @@ begin
           TextPage.Add(AO_PB2);
           TextPage.Add('');
           LogFile.Add('作者　　：' + auther);
-          Delete(MainPage, 1, ep + IAUTHERE);
+          Delete(MainPage, 1, ep + Length(SAUTHERE));
           // 前書き（あらすじ）
           sp := Pos(SHEADERB, MainPage);
           if sp > 1 then
           begin
-            Delete(MainPage, 1, sp + IHEADERB - 1);
+            Delete(MainPage, 1, sp + Length(SHEADERB) - 1);
             ep := Pos(SHEADERE, MainPage);
             if ep > 1 then
             begin
@@ -584,21 +578,21 @@ begin
           sp := Pos(SSTRURLB, MainPage);
           while sp > 1 do
           begin
-            Delete(MainPage, 1, sp + ISTRURLB - 1);
+            Delete(MainPage, 1, sp + Length(SSTRURLB) - 1);
             ep := Pos(SSTRURLE, MainPage);
             if ep > 1 then
             begin
               ts := Copy(MainPage, 1, ep - 1);
-              Delete(MainPage, 1, ep + ISTRURLE - 1);
+              Delete(MainPage, 1, ep + Length(SSTRURLE) - 1);
               sp := Pos(SSTTLB, MainPage);
               if sp > 1 then
               begin
-                Delete(MainPage, 1, ISTTLB + sp - 1);
+                Delete(MainPage, 1, Length(SSTTLB) + sp - 1);
                 ep := Pos(SSTTLE, MainPage);
                 if ep > 1 then
                 begin
                   ss := Copy(MainPage, 1, ep - 1);
-                  Delete(MainPage, 1, ISTTLE + ep - 1);
+                  Delete(MainPage, 1, Length(SSTTLE) + ep - 1);
                   PageList.Add(ts);
                   sp := Pos(SSTRURLB, MainPage);
                 end else
@@ -694,7 +688,7 @@ begin
   p := Pos(SHEAD, MainPage);
   if p > 0 then
   begin
-    str := Copy(MainPage, p + IHEAD, 6);
+    str := Copy(MainPage, p + Length(SHEAD), 6);
     if Pos('連載中', str) > 0 then
       Result := '【連載中】'
     else if Pos('完結', str) > 0 then
@@ -728,7 +722,7 @@ begin
   if ParamCount = 0 then
   begin
     Writeln('');
-    Writeln('alphadl ver2.4 2022/12/28 (c) INOUE, masahiro.');
+    Writeln('alphadl ver2.5 2023/2/27 (c) INOUE, masahiro.');
     Writeln('  使用方法');
     Writeln('  alphadl 小説トップページのURL [保存するファイル名(省略するとタイトル名で保存します)]');
     Exit;
