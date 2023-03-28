@@ -4,6 +4,8 @@
   アルファポリスはWinINetではページを全てダウンロードすることが出来ないため、IndyHTTP(TIdHTTP)を
   使用してダウンロードする
 
+  2.6 2023/03/28  &#????;の処理を16進数2byte決め打ちから10進数でも変換できるように変更した
+                  表紙画像URLの先頭1文字が欠落する不具合を修正した
   2.5 2023/02/27  &#x????;にエンコードされている‼等のUnicode文字をデコードする処理を追加した
                   識別タグの文字列長さを定数からLength(識別文字定数)に変更した
   2.4 2022/12/28  見出しの青空文庫タグを変更した
@@ -230,14 +232,14 @@ begin
   Result := StringReplace(Base, '<br />', '', [rfReplaceAll]);
 end;
 
-// 本文の青空文庫ルビ指定に用いられる文字があった場合誤作動しないように代替文字に変換する
+// 本文の青空文庫ルビ指定に用いられる文字があった場合誤作動しないように青空文庫代替表記に変換する(2022/3/25)
 function ChangeAozoraTag(Base: string): string;
 var
   tmp: string;
 begin
-  tmp := StringReplace(Base, '《', '『',  [rfReplaceAll]);
-  tmp := StringReplace(tmp,  '》', '』',  [rfReplaceAll]);
-  tmp := StringReplace(tmp,  '｜', '‖',   [rfReplaceAll]);
+  tmp := StringReplace(Base, '《', '※［＃始め二重山括弧、1-1-52］',  [rfReplaceAll]);
+  tmp := StringReplace(tmp,  '》', '※［＃終わり二重山括弧、1-1-53］',  [rfReplaceAll]);
+  tmp := StringReplace(tmp,  '｜', '※［＃縦線、1-1-35］',   [rfReplaceAll]);
   Result := tmp;
 end;
 
@@ -264,13 +266,27 @@ begin
   Result := tmp;
 end;
 
+// Delphi XE2ではPos関数に検索開始位置を指定出来ないための代替え
+function PosN(SubStr, Str: string; StartPos: integer): integer;
+var
+  tmp: string;
+  p: integer;
+begin
+  tmp := Copy(Str, StartPos, Length(Str));
+  p := Pos(SubStr, tmp);
+  if p > 0 then
+    Result := p + StartPos - 1  // 1ベーススタートのため1を引く
+  else
+    Result := 0;
+end;
+
 // HTML特殊文字の処理
 // 1)エスケープ文字列 → 実際の文字
 // 2)&#x????; → 通常の文字
 function Restore2RealChar(Base: string): string;
 var
   tmp, cd: string;
-  p, w: integer;
+  p, p2, w: integer;
   ch: Char;
 begin
   // エスケープされた文字
@@ -282,18 +298,29 @@ begin
   tmp := StringReplace(tmp,  '&brvbar;',  '|',  [rfReplaceAll]);
   tmp := StringReplace(tmp,  '&copy;',    '©',  [rfReplaceAll]);
   tmp := StringReplace(tmp,  '&amp;',     '&',  [rfReplaceAll]);
-  // &#x????;にエンコードされた文字をデコードする (2023/2/27)
-  p := Pos('&#x', tmp);
+  // &#????;にエンコードされた文字をデコードする(2023/3/19)
+  p := Pos('&#', tmp);
   while p > 0 do
   begin
-    Delete(tmp, p, 3);
-    cd := Copy(tmp, p, 4);
-    w := StrToInt('$' + cd);
+    Delete(tmp, p, 2);
+    p2 := PosN(';', tmp, p);
+    if p2 = 0 then
+      Break;
+    cd := Copy(tmp, p, p2 - p);
+    Delete(tmp, p, p2 - p + 1);
+    // 16進数
+    if cd[1] = 'x' then
+    begin
+      Delete(cd, 1, 1);
+      w := StrToInt('$' + cd);
+    // 10進数
+    end else
+      w := StrToInt(cd);
     ch := Char(w);
-    Delete(tmp, p, 5);
     Insert(ch, tmp, p);
-    P := Pos('&#x', tmp);
+    p := Pos('&#', tmp);
   end;
+
   Result := tmp;
 end;
 
@@ -606,7 +633,7 @@ begin
           sp := Pos(SCOVERB, MainPage);
           if sp > 1 then
           begin
-            Delete(MainPage, 1, sp + 79{70});
+            Delete(MainPage, 1, sp + 78{7970});
             ep := Pos(SCOVERE, MainPage);
             cv := Copy(MainPage, 1, ep - 1);
             if Pos('alphapolis.co.jp/img/books/no_image/', cv) = 0 then
@@ -722,7 +749,7 @@ begin
   if ParamCount = 0 then
   begin
     Writeln('');
-    Writeln('alphadl ver2.5 2023/2/27 (c) INOUE, masahiro.');
+    Writeln('alphadl ver2.6 2023/3/19 (c) INOUE, masahiro.');
     Writeln('  使用方法');
     Writeln('  alphadl 小説トップページのURL [保存するファイル名(省略するとタイトル名で保存します)]');
     Exit;
