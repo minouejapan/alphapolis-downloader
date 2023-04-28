@@ -4,6 +4,7 @@
   アルファポリスはWinINetではページを全てダウンロードすることが出来ないため、IndyHTTP(TIdHTTP)を
   使用してダウンロードする
 
+  2.7 2023/04/28  表紙画像URLの先頭1文字に余分な文字が入る場合がある不具合を修正した
   2.6 2023/03/28  &#????;の処理を16進数2byte決め打ちから10進数でも変換できるように変更した
                   表紙画像URLの先頭1文字が欠落する不具合を修正した
   2.5 2023/02/27  &#x????;にエンコードされている‼等のUnicode文字をデコードする処理を追加した
@@ -636,6 +637,9 @@ begin
             Delete(MainPage, 1, sp + 78{7970});
             ep := Pos(SCOVERE, MainPage);
             cv := Copy(MainPage, 1, ep - 1);
+            // 1文字ずれる場合があるのでその場合は除去する
+            if cv[1] = '"' then
+              Delete(cv, 1, 1);
             if Pos('alphapolis.co.jp/img/books/no_image/', cv) = 0 then
               TextPage.Insert(2, AO_CVB + cv + AO_CVE);
           end;
@@ -749,7 +753,7 @@ begin
   if ParamCount = 0 then
   begin
     Writeln('');
-    Writeln('alphadl ver2.6 2023/3/19 (c) INOUE, masahiro.');
+    Writeln('alphadl ver2.7 2023/4/28 (c) INOUE, masahiro.');
     Writeln('  使用方法');
     Writeln('  alphadl 小説トップページのURL [保存するファイル名(省略するとタイトル名で保存します)]');
     Exit;
