@@ -4,6 +4,8 @@
   アルファポリスはWinINetではページを全てダウンロードすることが出来ないため、IndyHTTP(TIdHTTP)を
   使用してダウンロードする
 
+  2.9 2023/07/24  オプション引数確認処理を変更し、DL開始ページ指定オプション-sを追加し
+  2.8 2023/05/30  作者URL情報取得処理を追加した
   2.7 2023/04/28  表紙画像URLの先頭1文字に余分な文字が入る場合がある不具合を修正した
   2.6 2023/03/28  &#????;の処理を16進数2byte決め打ちから10進数でも変換できるように変更した
                   表紙画像URLの先頭1文字が欠落する不具合を修正した
@@ -40,6 +42,8 @@ program alphadl;
 {$APPTYPE CONSOLE}
 
 {$R *.res}
+
+
 
 {$R *.dres}
 
@@ -104,6 +108,7 @@ const
   AO_DAN = '字下げ］';
   AO_PGB = '［＃改丁］';			// 改丁と会ページはページ送りなのか見開き分の
   AO_PB2 = '［＃改ページ］';	// 送りかの違いがあるがどちらもページ送りとする
+  AO_BED = '［＃本文終わり］';// 本文終わり(Body End)
   AO_SM1 = '」に傍点］';			// ルビ傍点
   AO_SM2 = '」に丸傍点］';		// ルビ傍点 どちらもsesami_dotで扱う
   AO_EMB = '［＃丸傍点］';        // 横転開始
@@ -128,12 +133,13 @@ var
   PageList,
   TextPage,
   LogFile: TStringList;
-  Capter, URL, Path, FileName, NvStat, strhdl: string;
+  Capter, URL, Path, FileName,
+  NvStat, AuthURL, StartPage: string;
   RBuff: TMemoryStream;
   TBuff: TStringList;
   hWnd: THandle;
   CDS: TCopyDataStruct;
-
+  StartN: integer;
 
 // Indyを用いたHTMLファイルのダウンロード
 function LoadHTMLbyIndy(URLadr: string; var RBuff: TMemoryStream): Boolean;
@@ -349,7 +355,8 @@ begin
       Insert(AO_PIE, Base, p);
       Insert(lnk, Base, p);
       Insert(AO_PIB, Base, p);
-    end;
+    end else
+      p := p + Length(SPICTB) + 1;
     p := Pos(SPICTB, Base);
   end;
   Result := Base;
@@ -381,7 +388,7 @@ begin
 end;
 
 // 小説本文をHTMLから抜き出して整形する
-function PersPage(Page: string): Boolean;
+function ParsePage(Page: string): Boolean;
 var
   sp, ep: integer;
   capt, subt, body: string;
@@ -469,7 +476,7 @@ end;
 // 各話URLリストをもとに各話ページを読み込んで本文を取り出す
 procedure LoadEachPage;
 var
-  i, n, cnt: integer;
+  i, n, cnt, sc: integer;
   RBuff: TMemoryStream;
   TBuff: TStringList;
   CSBI: TConsoleScreenBufferInfo;
@@ -480,8 +487,6 @@ begin
   try
     TBuff := TStringList.Create;
     try
-      i := 0;
-      n := 1;
       cnt := PageList.Count;
       hCOutput := GetStdHandle(STD_OUTPUT_HANDLE);
       GetConsoleScreenBufferInfo(hCOutput, CSBI);
@@ -489,6 +494,13 @@ begin
       Write('各話を取得中 [  0/' + Format('%3d', [cnt]) + ']');
       CCI.bVisible := False;
       SetConsoleCursorInfo(hCoutput, CCI);
+      if StartN > 0 then
+        i := StartN - 1
+      else
+        i := 0;
+      n := 1;
+      sc := cnt - i;
+
       while i < cnt do
       begin
         RBuff.Clear;
@@ -500,9 +512,9 @@ begin
           TBuff.LoadFromStream(RBuff, TEncoding.UTF8);
           //Debug用（有効にすると各話HTMLをそのまま保存する）
           //TBuff.SaveToFile(ExtractFilePath(ParamStr(0)) + IntToStr(i) + '.htm', TEncoding.UTF8);
-          PersPage(TBuff.Text);
+          ParsePage(TBuff.Text);
           SetConsoleCursorPosition(hCOutput, CSBI.dwCursorPosition);
-          Write('各話を取得中 [' + Format('%3d', [n]) + '/' + Format('%3d', [cnt]) + '(' + Format('%d', [(n * 100) div cnt]) + '%)]');
+          Write('各話を取得中 [' + Format('%3d', [i + 1]) + '/' + Format('%3d', [cnt]) + '(' + Format('%d', [(n * 100) div sc]) + '%)]');
           if hWnd <> 0 then
             SendMessage(hWnd, WM_DLINFO, i, 1);
         end else begin
@@ -524,7 +536,7 @@ begin
 end;
 
 // トップページからタイトル、作者、前書き、各話情報を取り出す
-procedure PersCapter(MainPage: string);
+procedure ParseCapter(MainPage: string);
 var
   sp, ep: integer;
   ss, ts, title, auther, fn, sendstr, cv: string;
@@ -554,6 +566,9 @@ begin
         fn := title;
         if Length(fn) > 26 then
           Delete(fn, 27, Length(fn) - 26);
+        if StartPage <> '' then
+          fn := fn + '(' + StartPage + ')';
+
         Filename := Path + fn + '.txt';
       end;
       // タイトル名に"完結"が含まれていなければ先頭に小説の連載状況を追加する
@@ -564,6 +579,7 @@ begin
       LogFile.Add('タイトル：' + title);
       Delete(MainPage, 1, sp + Length(STITLEE));
       // 作者名
+      AuthURL := '';
       sp := Pos(SAUTHERB, MainPage);
       if sp > 1  then
       begin
@@ -572,7 +588,10 @@ begin
         if ep > 1 then
         begin
           ts := Copy(MainPage, 1, ep - 1);
+          sp := Pos('<a href="', ts);
+          Delete(ts, 1, sp + Length('<a href="') - 1);
           sp := Pos('">', ts);
+          AuthURL := 'https://www.alphapolis.co.jp' + Copy(ts, 1, sp - 1);
           Delete(ts, 1, sp + 1);
           auther := ts;
           // 作者名を保存
@@ -581,6 +600,8 @@ begin
           TextPage.Add(AO_PB2);
           TextPage.Add('');
           LogFile.Add('作者　　：' + auther);
+          if AuthURL <> '' then
+            LogFile.Add('作者URL : ' + AuthURL);
           Delete(MainPage, 1, ep + Length(SAUTHERE));
           // 前書き（あらすじ）
           sp := Pos(SHEADERB, MainPage);
@@ -727,6 +748,10 @@ begin
   end;
 end;
 
+var
+  i: integer;
+  op: string;
+
 begin
   // OpenSSLライブラリをチェック
   if not CheckOpenSSL then
@@ -753,29 +778,54 @@ begin
   if ParamCount = 0 then
   begin
     Writeln('');
-    Writeln('alphadl ver2.7 2023/4/28 (c) INOUE, masahiro.');
+    Writeln('alphadl ver2.9 2023/7/24 (c) INOUE, masahiro.');
     Writeln('  使用方法');
-    Writeln('  alphadl 小説トップページのURL [保存するファイル名(省略するとタイトル名で保存します)]');
+    Writeln('  alphadl [-sDL開始ページ番号] 小説トップページのURL [保存するファイル名(省略するとタイトル名で保存します)]');
     Exit;
   end;
   hWnd := 0;
 
   Path := ExtractFilePath(ParamStr(0));
-  URL := ParamStr(1);
-  if ParamCount > 1 then
+
+  // オプション引数取得
+  for i := 0 to ParamCount - 1 do
   begin
-    FileName := ParamStr(2);
-    if ParamCount = 3 then
+    op := ParamStr(i + 1);
+    // Naro2mobiのWindowsハンドル
+    if Pos('-h', op) = 1 then
     begin
-      strhdl := ParamStr(3);
-      if Pos('-h', strhdl) = 1 then
-      begin
-        Delete(strhdl, 1, 2);
-        hWnd := StrToInt(strhdl);
+      Delete(op, 1, 2);
+      try
+        hWnd := StrToInt(op);
+      except
+        Writeln('Error: Invalid Naro2mobi Handle.');
+        ExitCode := -1;
+        Exit;
       end;
+    // DL開始ページ番号
+    end else if Pos('-s', op) = 1 then
+    begin
+      Delete(op, 1, 2);
+      StartPage := op;
+      try
+        StartN := StrToInt(op);
+      except
+        Writeln('Error: Invalid Start Page Number.');
+        ExitCode := -1;
+        Exit;
+      end;
+    // 作品URL
+    end else if Pos('https:', op) = 1 then
+    begin
+      URL := op;
+    // それ以外であれば保存ファイル名
+    end else begin
+      FileName := op;
+      if UpperCase(ExtractFileExt(op)) <> '.TXT' then
+        FileName := FileName + '.txt';
     end;
-  end else
-    FileName := '';
+  end;
+
   if Pos('https://www.alphapolis.co.jp/novel/', URL) = 0 then
   begin
     Writeln('小説のURLが違います.');
@@ -800,7 +850,7 @@ begin
         LogFile.Add(URL);
         try
           NvStat := GetNovelStatus(TBuff.Text); // 小説の連載状況を取得
-          PersCapter(TBuff.Text);
+          ParseCapter(TBuff.Text);
           if PageList.Count > 0 then
           begin
             LoadEachPage;
