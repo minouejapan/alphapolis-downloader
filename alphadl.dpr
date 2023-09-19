@@ -4,6 +4,14 @@
   アルファポリスはWinINetではページを全てダウンロードすることが出来ないため、IndyHTTP(TIdHTTP)を
   使用してダウンロードする
 
+  3.1 2023/09/17  トップページの各話URLタグおよび各ページURLその他情報の構造が変更されたことと
+                  Indyライブラリを使用したダウンロードにもDLページ数制限がかけられたため正常に
+                  ダウンロード出来なくなったことから大幅修正してダウンロード出来るようにした
+                  ・IndyライブラリからWinINetによるHTMLダウンロードに変更した。またこのことに
+                    よってOpenSSLライブラリは不要となった
+                  ・確実にダウンロードを完了させるため、ダウンロード制限がかかった場合は制限が
+                    解除されるまで待機するようにした
+  3.0 2023/07/30  DL開始ページを指定した場合のNaro2mobiに送るDLページ数が1少なかった不具合を修正した
   2.9 2023/07/24  オプション引数確認処理を変更し、DL開始ページ指定オプション-sを追加し
   2.8 2023/05/30  作者URL情報取得処理を追加した
   2.7 2023/04/28  表紙画像URLの先頭1文字に余分な文字が入る場合がある不具合を修正した
@@ -50,10 +58,8 @@ program alphadl;
 uses
   System.SysUtils,
   System.Classes,
-  IdHTTP,
-  IdSSLOpenSSL,
-  IdGlobal,
   Windows,
+  WinINet,
   WinAPI.Messages;
 
 const
@@ -66,7 +72,8 @@ const
   SAUTHERE = '</a>';
   SHEADERB = '<div class="abstract">'; // 前書き
   SHEADERE = '</div>';
-  SSTRURLB = '<div class="episode ">       <a href="';
+  //SSTRURLB = '<div class="episode ">       <a href="';
+  SSTRURLB = '<div class="episode ">    <a href="';
   SSTRURLE = '" >';
   SSTTLB   = '<span class="title"><span class="bookmark-dummy"></span>';
   SSTTLE   = '</span>';
@@ -75,9 +82,10 @@ const
   SCAPTE   = '</div>';
   SEPISB   = '<h2 class="episode-title">';
   SEPISE   = '</h2>';
-  SBODYB   = '<div class="text " id="novelBoby">';
+  //SBODYB   = '<div class="text " id="novelBoby">';
+  SBODYB   = '<div class="text " id="novelBody">';
   SBODYE   = '</div>';
-  SERRSTR  = '<div class="dots-indicator" id="LoadingEpisode">';
+  SERRSTR  = '<div class="dots-indicator"';
   SPICTB   = '<div class="story-image"><a href="';
   SPICTM   = '" target="_blank"><img src="';
   SPICTE   = '" alt=""/></a></div>';
@@ -128,67 +136,69 @@ const
   WM_DLINFO  = WM_USER + 30;
 
 var
-  IdHTTP: TIdHTTP;
-  IdSSL: TIdSSLIOHandlerSocketOpenSSL;
   PageList,
   TextPage,
   LogFile: TStringList;
   Capter, URL, Path, FileName,
   NvStat, AuthURL, StartPage: string;
-  RBuff: TMemoryStream;
   TBuff: TStringList;
   hWnd: THandle;
   CDS: TCopyDataStruct;
   StartN: integer;
+  DlCnt: integer;
 
-// Indyを用いたHTMLファイルのダウンロード
-function LoadHTMLbyIndy(URLadr: string; var RBuff: TMemoryStream): Boolean;
+// WinINetを用いたHTMLファイルのダウンロード
+function LoadFromHTML(URLadr: string): string;
 var
-  IdURL: string;
-label
-  Terminate;
+  hSession    : HINTERNET;
+  hService    : HINTERNET;
+  dwBytesRead : DWORD;
+  dwFlag      : DWORD;
+  lpBuffer    : PChar;
+  RBuff       : TMemoryStream;
+  TBuff       : TStringList;
 begin
-  RBuff.Clear;
-  RBuff.Position := 0;
-	Result := False;
+  Result   := '';
+  hSession := InternetOpen('WinINet', INTERNET_OPEN_TYPE_PRECONFIG, nil, nil, 0);
 
-  IdSSL.IPVersion := Id_IPv4;
-  IdSSL.MaxLineLength := 32768;
-  IdSSL.SSLOptions.Method := sslvSSLv23;
-  IdSSL.SSLOptions.SSLVersions := [sslvSSLv2,sslvTLSv1];
-  IdHTTP.HandleRedirects := True;
-  IdHTTP.IOHandler := IdSSL;
-  //ファイルまたはページが見つかったら保存先を選択してダウンロード
-  try
-    IdHTTP.Head(URLadr);
-  except
-    //取得に失敗した場合、再度取得を試みる
-    try
-      IdHTTP.Head(URLadr);
-    except
-      Result := True;
-    end;
-  end;
-  if IdHTTP.ResponseCode = 302 then
+  if Assigned(hSession) then
   begin
-    //リダイレクト後のURLで再度Headメソッドを実行して情報取得
-    IdHTTP.Head(IdHTTP.Response.Location);
-  end;
-  if not Result then
-  begin
-    IdURL := IdHTTP.URL.URI;
-    try
-      IdHTTP.Get(IdURL, RBuff);
-    except
-      //取得に失敗した場合、再度取得を試みる
+    dwFlag   := INTERNET_FLAG_RELOAD;
+    hService := InternetOpenUrl(hSession, PChar(URLadr), nil, 0, dwFlag, 0);
+    if Assigned(hService ) then
+    begin
+      RBuff := TMemoryStream.Create;
       try
-        IdHTTP.Get(IdURL, RBuff);
-      except
-        Result := True;
+        lpBuffer := AllocMem(65536);
+        try
+          dwBytesRead := 65535;
+          while True do
+          begin
+            if InternetReadFile(hService, lpBuffer, 65535,{SizeOf(lpBuffer),}dwBytesRead) then
+            begin
+              if dwBytesRead = 0 then
+                break;
+              RBuff.WriteBuffer(lpBuffer^, dwBytesRead);
+            end else
+              break;
+          end;
+        finally
+          FreeMem(lpBuffer);
+        end;
+        TBuff := TStringList.Create;
+        try
+          RBuff.Position := 0;
+          TBuff.LoadFromStream(RBuff, TEncoding.UTF8);
+          Result := TBuff.Text;
+        finally
+          TBuff.Free;
+        end;
+      finally
+        RBuff.Free;
       end;
     end;
+    InternetCloseHandle(hService);
   end;
-  IdHTTP.Disconnect;
 end;
 
 // HTMLテキスト内のCR/LF(#$0D#$0A)を除去しTAB文字を半角スペースに変換する
@@ -413,56 +423,51 @@ begin
       else
         Capter := capt;
       Delete(Page, 1, Length(SCAPTE) + ep - 1);
+    end;
+  end else
+    capt := '';
+  // 本文の終わりを</div>で検出するため、同様に</div>で終了する埋め込み画像を
+  // 最初に処理しておく(2022/2/2)
+  Page := ChangeImage(Page);
 
-      // 本文の終わりを</div>で検出するため、同様に</div>で終了する埋め込み画像を
-      // 最初に処理しておく(2022/2/2)
-      Page := ChangeImage(Page);
-
-      sp := Pos(SEPISB, Page);
+  sp := Pos(SEPISB, Page);
+  if sp > 1 then
+  begin
+    Delete(Page, 1, Length(SEPISB) + sp - 1);
+    ep := Pos(SEPISE, Page);
+    if ep > 1 then
+    begin
+      subt := Copy(Page, 1, ep - 1);
+      subt := TrimSpace(subt);
+      subt := Restore2RealChar(subt);
+      Delete(Page, 1, Length(SEPISB) + ep - 1);
+      sp := Pos(SBODYB, Page);
       if sp > 1 then
       begin
-        Delete(Page, 1, Length(SEPISB) + sp - 1);
-        ep := Pos(SEPISE, Page);
+        Delete(Page, 1, Length(SBODYB) + sp - 1);
+        ep := Pos(SBODYE, Page);
         if ep > 1 then
         begin
-          subt := Copy(Page, 1, ep - 1);
-          subt := TrimSpace(subt);
-          subt := Restore2RealChar(subt);
-          Delete(Page, 1, Length(SEPISB) + ep - 1);
-          sp := Pos(SBODYB, Page);
-          if sp > 1 then
+          body := Copy(Page, 1, ep - 1);
+          body := ChangeBRK(body);        // </ br>をCRLFに変換する
+          body := ChangeRuby(body);       // ルビのタグを変換する
+          body := ChangeEm(body);         // 強調（傍点）タグを変換する
+          body := Restore2RealChar(body); // エスケースされた特殊文字を本来の文字に変換する
+
+          if Length(capt) > 0 then
+            TextPage.Add(AO_CPB + capt + AO_CPE);
+          sp := Pos(SERRSTR, body);
+          if sp > 0 then
           begin
-            Delete(Page, 1, Length(SBODYB) + sp - 1);
-            ep := Pos(SBODYE, Page);
-            if ep > 1 then
-            begin
-              body := Copy(Page, 1, ep - 1);
-              body := ChangeBRK(body);        // </ br>をCRLFに変換する
-              //body := ChangeAozoraTag(body);  // 青空文庫のルビタグ文字｜《》を変換する
-              body := ChangeRuby(body);       // ルビのタグを変換する
-              body := ChangeEm(body);         // 強調（傍点）タグを変換する
-              //body := ChangeImage(body);      // 埋め込み画像リンクを変換する (2022/2/2 コメントアウト)
-              body := Restore2RealChar(body); // エスケースされた特殊文字を本来の文字に変換する
-
-              if Length(capt) > 0 then
-                //TextPage.Add(AO_CPI + capt + AO_CPT);
-                TextPage.Add(AO_CPB + capt + AO_CPE);
-
-              sp := Pos(SERRSTR, body);
-              if (sp > 0) and (sp < 10) then
-              begin
-                TextPage.Add(AO_SEB + subt + AO_SEE);
-                TextPage.Add('★HTMLページ読み込みエラー');
-                Result := True;
-              end else begin
-                //TextPage.Add(AO_CPI + subt + AO_SEC);
-                TextPage.Add(AO_SEB + subt + AO_SEE);
-                TextPage.Add(body);
-                TextPage.Add('');
-                TextPage.Add(AO_PB2);
-                TextPage.Add('');
-              end;
-            end;
+            TextPage.Add(AO_SEB + subt + AO_SEE);
+            TextPage.Add('★HTMLページ読み込みエラー');
+            Result := True;
+          end else begin
+            TextPage.Add(AO_SEB + subt + AO_SEE);
+            TextPage.Add(body);
+            TextPage.Add('');
+            TextPage.Add(AO_PB2);
+            TextPage.Add('');
           end;
         end;
       end;
@@ -503,21 +508,20 @@ begin
 
       while i < cnt do
       begin
-        RBuff.Clear;
-        if not LoadHTMLbyIndy('https://www.alphapolis.co.jp' + PageList.Strings[i], RBuff) then
+        TBuff.Text := LoadFromHTML(PageList.Strings[i]);
+        while Pos(SERRSTR, TBuff.Text) > 0 do
         begin
-          RBuff.Position := 0;
-          TBuff.Clear;
-          TBuff.WriteBOM := False;
-          TBuff.LoadFromStream(RBuff, TEncoding.UTF8);
-          //Debug用（有効にすると各話HTMLをそのまま保存する）
-          //TBuff.SaveToFile(ExtractFilePath(ParamStr(0)) + IntToStr(i) + '.htm', TEncoding.UTF8);
-          ParsePage(TBuff.Text);
-          SetConsoleCursorPosition(hCOutput, CSBI.dwCursorPosition);
-          Write('各話を取得中 [' + Format('%3d', [i + 1]) + '/' + Format('%3d', [cnt]) + '(' + Format('%d', [(n * 100) div sc]) + '%)]');
-          if hWnd <> 0 then
-            SendMessage(hWnd, WM_DLINFO, i, 1);
-        end else begin
+          // ダウンロード制限にかかった場合は10秒待機して再ダウンロードを繰り返す
+          Sleep(10000);
+          TBuff.Text := LoadFromHTML(PageList.Strings[i]);
+        end;
+        SetConsoleCursorPosition(hCOutput, CSBI.dwCursorPosition);
+        Write('各話を取得中 [' + Format('%3d', [i + 1]) + '/' + Format('%3d', [cnt]) + '(' + Format('%d', [(n * 100) div sc]) + '%)]');
+        if hWnd <> 0 then
+          SendMessage(hWnd, WM_DLINFO, i, 1);
+        ParsePage(TBuff.Text);
+        if (TBuff.Text = '') or (Pos(SERRSTR, TBuff.Text) > 0) then
+        begin
           TextPage.Add('本文を取得出来ませんでした.');
           TextPage.Add(AO_PB2);
         end;
@@ -544,9 +548,6 @@ var
 begin
   Write('小説情報を取得中 ' + URL + ' ... ');
 
-  // Debug
-  // Writeln(ElimCRLF(MainPage));
-
   // タイトル名
   sp := Pos(STITLEB, MainPage);
   if sp > 0 then
@@ -559,7 +560,7 @@ begin
       while (ss[1] <= ' ') do
         Delete(ss, 1, 1);
       // タイトル名からファイル名に使用できない文字を除去する
-      title := PathFilter(ss);
+      title := PathFilter(Restore2RealChar(ss));
       // 引数に保存するファイル名を指定していなかった場合、タイトル名からファイル名を作成する
       if Length(Filename) = 0 then
       begin
@@ -655,14 +656,16 @@ begin
           sp := Pos(SCOVERB, MainPage);
           if sp > 1 then
           begin
-            Delete(MainPage, 1, sp + 78{7970});
-            ep := Pos(SCOVERE, MainPage);
-            cv := Copy(MainPage, 1, ep - 1);
-            // 1文字ずれる場合があるのでその場合は除去する
-            if cv[1] = '"' then
-              Delete(cv, 1, 1);
-            if Pos('alphapolis.co.jp/img/books/no_image/', cv) = 0 then
-              TextPage.Insert(2, AO_CVB + cv + AO_CVE);
+            Delete(MainPage, 1, sp + Length(SCOVERB));
+            sp := Pos('<img src="', MainPage);
+            if sp > 0 then
+            begin
+              Delete(MainPage, 1, sp + Length('<img src="') - 1);
+              ep := Pos('">', MainPage);
+              cv := Copy(MainPage, 1, ep - 1);
+              if Pos('alphapolis.co.jp/img/books/no_image/', cv) = 0 then
+                TextPage.Insert(2, AO_CVB + cv + AO_CVE);
+            end;
           end;
           Writeln(IntToStr(PageList.Count) + ' 話の情報を取得しました.');
           // Naro2mobiから呼び出された場合は進捗状況をSendする
@@ -670,7 +673,7 @@ begin
           begin
             conhdl := GetStdHandle(STD_OUTPUT_HANDLE);
             sendstr := title + ',' + auther;
-            Cds.dwData := PageList.Count;
+            Cds.dwData := PageList.Count - StartN + 1;
             Cds.cbData := (Length(sendstr) + 1) * SizeOf(Char);
             Cds.lpData := Pointer(sendstr);
             SendMessage(hWnd, WM_COPYDATA, conhdl, LPARAM(Addr(Cds)));
@@ -679,55 +682,6 @@ begin
       end;
     end;
   end;
-end;
-
-// exeやdllのファイルバージョンを取得する
-function GetVersionInfo(const AFileName:string): string;
-var
-  InfoSize:DWORD;
-  SFI:string;
-  Buf,Trans,Value:Pointer;
-begin
-  Result := '';
-  if AFileName = '' then Exit;
-  InfoSize := GetFileVersionInfoSize(PChar(AFileName),InfoSize);
-  if InfoSize <> 0 then
-  begin
-    GetMem(Buf,InfoSize);
-    try
-      if GetFileVersionInfo(PChar(AFileName),0,InfoSize,Buf) then
-      begin
-        if VerQueryValue(Buf,'\VarFileInfo\Translation',Trans,InfoSize) then
-        begin
-          SFI := Format('\StringFileInfo\%4.4x%4.4x\FileVersion',
-                 [LOWORD(DWORD(Trans^)),HIWORD(DWORD(Trans^))]);
-          if VerQueryValue(Buf,PChar(SFI),Value,InfoSize) then
-            Result := PChar(Value)
-          else Result := 'UnKnown';
-        end;
-      end;
-    finally
-      FreeMem(Buf);
-    end;
-  end;
-end;
-
-// OpenSSLが使用出来るかどうかチェックする
-function CheckOpenSSL: Boolean;
-var
-  hnd: THandle;
-begin
-  Result := True;
-  hnd := LoadLibrary('libeay32.dll');
-  if hnd = 0 then
-    Result := False
-  else
-    FreeLibrary(hnd);
-  hnd := LoadLibrary('ssleay32.dll');
-  if hnd = 0 then
-    Result := False
-  else
-    FreeLibrary(hnd);
 end;
 
 // 小説の連載状況をチェックする
@@ -740,7 +694,7 @@ begin
   p := Pos(SHEAD, MainPage);
   if p > 0 then
   begin
-    str := Copy(MainPage, p + Length(SHEAD), 6);
+    str := Copy(MainPage, p + Length(SHEAD), 20);
     if Pos('連載中', str) > 0 then
       Result := '【連載中】'
     else if Pos('完結', str) > 0 then
@@ -751,38 +705,18 @@ end;
 var
   i: integer;
   op: string;
+  st, et: TTime;
 
 begin
-  // OpenSSLライブラリをチェック
-  if not CheckOpenSSL then
-  begin
-    Writeln('');
-    Writeln('alphadlを使用するためのOpenSSLライブラリが見つかりません.');
-    Writeln('以下のサイトからopenssl-1.0.2q-i386-win32.zipをダウンロードしてlibeay32.dllとssleay32.dllをalphadl.exeがあるフォルダにコピーして下さい.');
-    Writeln('https://github.com/IndySockets/OpenSSL-Binaries');
-    ExitCode := 2;
-    Exit;
-  end;
-  // OpenSSLのバージョンをチェック
-  if (Pos('1.0.2', GetVersionInfo('libeay32.dll')) = 0)
-    or (Pos('1.0.2', GetVersionInfo('ssleay32.dll')) = 0) then
-  begin
-    Writeln('');
-    Writeln('OpenSSLライブラリのバージョンが違います.');
-    Writeln('以下のサイトからopenssl-1.0.2q-i386-win32.zipをダウンロードしてlibeay32.dllとssleay32.dllをalphadl.exeがあるフォルダにコピーして下さい.');
-    Writeln('https://github.com/IndySockets/OpenSSL-Binaries');
-    ExitCode := 2;
-    Exit;
-  end;
-
   if ParamCount = 0 then
   begin
     Writeln('');
-    Writeln('alphadl ver2.9 2023/7/24 (c) INOUE, masahiro.');
+    Writeln('alphadl ver3.1 2023/9/19 (c) INOUE, masahiro.');
     Writeln('  使用方法');
     Writeln('  alphadl [-sDL開始ページ番号] 小説トップページのURL [保存するファイル名(省略するとタイトル名で保存します)]');
     Exit;
   end;
+  st := Now;
   hWnd := 0;
 
   Path := ExtractFilePath(ParamStr(0));
@@ -833,53 +767,47 @@ begin
   end;
 
   Capter := '';
-  RBuff := TMemoryStream.Create;
-  IdHTTP := TIdHTTP.Create(nil);
-  IdSSL := TIdSSLIOHandlerSocketOpenSSL.Create;
+  TBuff := TStringList.Create;
   try
-    if not LoadHTMLbyIndy(URL, RBuff) then
+    TBuff.Text := LoadFromHTML(URL);
+    if TBuff.Text <> '' then
     begin
-      TBuff := TStringList.Create;
+      PageList := TStringList.Create;
+      TextPage := TStringList.Create;
+      LogFile  := TStringList.Create;
+      LogFile.Add(URL);
       try
-        RBuff.Position := 0;
-        TBuff.WriteBOM := False;
-        TBuff.LoadFromStream(RBuff, TEncoding.UTF8);
-        PageList := TStringList.Create;
-        TextPage := TStringList.Create;
-        LogFile  := TStringList.Create;
-        LogFile.Add(URL);
-        try
-          NvStat := GetNovelStatus(TBuff.Text); // 小説の連載状況を取得
-          ParseCapter(TBuff.Text);
-          if PageList.Count > 0 then
-          begin
-            LoadEachPage;
-            try
-              TextPage.SaveToFile(Filename, TEncoding.UTF8);
-              LogFile.SaveToFile(ChangeFileExt(FileName, '.log'), TEncoding.UTF8);
-              Writeln(Filename + ' に保存しました.');
-            except
-              Writeln('ファイルの保存に失敗しました.');
-              ExitCode := 1;
-            end;
-          end else begin
-            Writeln(URL + '：トップページの目次情報を取得出来ませんでした.');
+        NvStat := GetNovelStatus(TBuff.Text); // 小説の連載状況を取得
+        ParseCapter(TBuff.Text);
+        if PageList.Count > 0 then
+        begin
+          // 各話ページを読み込む
+          DlCnt := 0;
+          LoadEachPage;
+          try
+            TextPage.SaveToFile(Filename, TEncoding.UTF8);
+            LogFile.SaveToFile(ChangeFileExt(FileName, '.log'), TEncoding.UTF8);
+            Writeln(Filename + ' に保存しました.');
+          except
+            Writeln('ファイルの保存に失敗しました.');
             ExitCode := 1;
           end;
-        finally
-          PageList.Free;
-          TextPage.Free;
+        end else begin
+          Writeln(URL + '：トップページの目次情報を取得出来ませんでした.');
+          ExitCode := 1;
         end;
       finally
-        TBuff.Free;
+        PageList.Free;
+        TextPage.Free;
+        LogFile.Free;
       end;
     end else begin
       Writeln(URL + '：トップページをダウンロード出来ませんでした.');
       ExitCode := 1;
     end;
   finally
-    IdSSL.Free;
-    IdHTTP.Free;
-    RBuff.Free;
+    TBuff.Free;
   end;
+  et := Now - st;
+  Writeln('時間: ' + FormatDateTime('hh:nn:ss', et));
 end.
