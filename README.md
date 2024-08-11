@@ -20,12 +20,12 @@ alphadl ダウンロードしたいアルファポリス小説トップページ
 
 実用的なダウンロードが可能なalphadlw.exeをalphapolis-downloader2として公開しました。
 
-https://github.com/minouejapan/alphapolis-downloader2/tree/main
+https://github.com/minouejapan/alphapolis-downloader2
 
 
 
 ### 禁止事項
-1.kakuyomudlを用いてWeb小 説サイトからダウンロードしたテキストファイルの第三者への販売や不特定多数への配信。 
+1.alphadlを用いてWeb小 説サイトからダウンロードしたテキストファイルの第三者への販売や不特定多数への配信。 
 
 2.ダウンロードしたオリジナル作品を著作者の了解なく加工（文章の流用や作品の翻訳等）しての再公開。 
 
