@@ -1,6 +1,10 @@
 ﻿(*
   アルファポリス小説ダウンローダー[alphadl]
 
+  アルファポリスはWinINetではページを全てダウンロードすることが出来ないため、IndyHTTP(TIdHTTP)を
+  使用してダウンロードする
+
+  3.2 2025/01/10  本文中の挿絵処理がおかしかった不具合を修正した
   3.1 2023/09/17  トップページの各話URLタグおよび各ページURLその他情報の構造が変更されたことと
                   Indyライブラリを使用したダウンロードにもDLページ数制限がかけられたため正常に
                   ダウンロード出来なくなったことから大幅修正してダウンロード出来るようにした
@@ -57,12 +61,11 @@ uses
   System.Classes,
   Windows,
   WinINet,
+  RegExpr,
   WinAPI.Messages;
 
 const
   // データ抽出用の識別タグ
-  //STITLEB  = '<h2 class="title">';     // 小説表題 2022/10/28 表題タグがh2からh1に変わった？
-  //STITLEE  = '</h2>';
   STITLEB  = '<h1 class="title">';     // 小説表題
   STITLEE  = '</h1>';
   SAUTHERB = '<div class="author">';   // 作者
@@ -83,9 +86,9 @@ const
   SBODYB   = '<div class="text " id="novelBody">';
   SBODYE   = '</div>';
   SERRSTR  = '<div class="dots-indicator"';
-  SPICTB   = '<div class="story-image"><a href="';
-  SPICTM   = '" target="_blank"><img src="';
-  SPICTE   = '" alt=""/></a></div>';
+  SPICTIN  = '<div class="story-image"><a href=.*?><img src=".*?" alt=""></a></div>';
+  SPICTB   = '<div class="story-image"><a href=.*?><img src="';
+  SPICTE   = '" alt=""></a></div>';
   SCOVERB  = '<div class="cover">';
   SCOVERE  = '" alt=""/>';
   SHEAD    = '<span class="content-status complete">';
@@ -342,29 +345,21 @@ end;
 // 但し、画像ファイルはダウンロードせずにリンク先をそのまま埋め込む
 function ChangeImage(Base: string): string;
 var
-  p, p2: integer;
-  lnk: string;
+  org, lnk: string;
+  r: TRegExpr;
 begin
-  p := Pos(SPICTB, Base);
-  while p > 0 do
-  begin
-    Delete(Base, p, Length(SPICTB));
-    p2 := Pos(SPICTM, Base);
-    if p2 > 1 then
+  r := TRegExpr.Create;      // 不具合があったため全面書き換え(2025/1/9)
+  try
+    r.Expression  := SPICTIN;
+    while r.Exec(Base) do
     begin
-      Delete(Base, p, p2 - p + Length(SPICTM));
-      p2 := Pos(SPICTE, Base);
-      if p2 > 1 then
-      begin
-        lnk := Copy(Base, p, p2 - p);
-        Delete(Base, p, p2 - p + Length(SPICTE));
-      end;
-      Insert(AO_PIE, Base, p);
-      Insert(lnk, Base, p);
-      Insert(AO_PIB, Base, p);
-    end else
-      p := p + Length(SPICTB) + 1;
-    p := Pos(SPICTB, Base);
+      org := r.Match[0];
+      lnk := ReplaceRegExpr(SPICTE, ReplaceRegExpr(SPICTB, org, ''), '');
+      lnk := AO_PIB + lnk + AO_PIE;
+      Base := StringReplace(Base, org, lnk, []);
+    end;
+  finally
+    r.Free;
   end;
   Result := Base;
 end;
@@ -375,22 +370,16 @@ end;
 // 見つからないことになるため'.'も'-'で置き換える(2019/12/20)
 function PathFilter(PassName: string): string;
 var
-	i, l: integer;
   path: string;
   tmp: AnsiString;
-  ch: char;
 begin
   // ファイル名を一旦ShiftJISに変換して再度Unicode化することでShiftJISで使用
   // 出来ない文字を除去する
-  tmp := AnsiString(PassName);
+  tmp  := AnsiString(PassName);
 	path := string(tmp);
-  l :=  Length(path);
-  for i := 1 to l do
-  begin
-  	ch := Char(path[i]);
-    if Pos(ch, '\/;:*?"<>|. '+#$09) > 0 then
-      path[i] := '-';
-  end;
+  // ファイル名として使用できない文字を'-'に置換する
+  path := ReplaceRegExpr('[\\/:;\*\?\+,.|\.\t ]', path, '-');
+
   Result := path;
 end;
 
@@ -522,6 +511,7 @@ begin
           TextPage.Add('本文を取得出来ませんでした.');
           TextPage.Add(AO_PB2);
         end;
+        Sleep(500);
         Inc(i);
         Inc(n);
       end;
@@ -708,7 +698,7 @@ begin
   if ParamCount = 0 then
   begin
     Writeln('');
-    Writeln('alphadl ver3.1 2023/9/19 (c) INOUE, masahiro.');
+    Writeln('alphadl ver3.2 2025/1/10 (c) INOUE, masahiro.');
     Writeln('  使用方法');
     Writeln('  alphadl [-sDL開始ページ番号] 小説トップページのURL [保存するファイル名(省略するとタイトル名で保存します)]');
     Exit;
